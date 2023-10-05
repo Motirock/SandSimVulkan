@@ -69,7 +69,7 @@ if (time*TPS >= ticks) {
 
 #include "VkUtils.h"
 #include "PerlinNoise.hpp"
-#include "Cell.h"
+#include "Grid.h"
 
 using namespace VkUtils;
 
@@ -230,23 +230,18 @@ private:
     float speed = 30.0f;
     float turningSpeed = 2.0f;
 
-    static const uint32_t gridWidth = 1000, gridHeight = 1000;
-    Cell *cellGrid = new Cell[gridWidth*gridHeight];
+    Grid *grid;
     float visibleHeight = 100.0f;
     float visibleWidth = 0;
     
     uint64_t updates = 0;
 
     Cell& getCell(int x, int y) {
-        return cellGrid[x*gridHeight+y];
+        return grid->getCell(x, y);
     }
 
     void generateWorld() {
-        for (int x = 0; x < gridWidth; x++) {
-            for (int y = 0; y < gridHeight; y++) {
-                getCell(x, y) = Cell(AIR);
-            }
-        }
+        grid = new Grid();
 
         /*tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
@@ -287,17 +282,17 @@ private:
     }
 
     void update() {
-        srand(ticks%1000);
+        srand(ticks%(TPS*10));
 
-        for (int x = 0; x < gridWidth; x++)
-            for (int y = 0; y < gridHeight; y++)
+        for (int x = 0; x < grid->gridWidth; x++)
+            for (int y = 0; y < grid->gridHeight; y++)
                 getCell(x, y).updated = false;
-        for (int x = 0; x < gridWidth; x++) {
-            for (int y = gridHeight-1; y >= 0; y--) {
+        for (int x = 0; x < grid->gridWidth; x++) {
+            for (int y = grid->gridHeight-1; y >= 0; y--) {
                 if (getCell(x,y).type == AIR || getCell(x,y).updated)
                     continue;
                 if (getCell(x,y).type == SAND) {
-                    if (y+1 < gridHeight) {
+                    if (y+1 < grid->gridHeight) {
                         if (getCell(x, y+1).type <= WATER) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
@@ -312,7 +307,7 @@ private:
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < gridWidth && getCell(x+1, y+1).type <= WATER) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).type <= WATER) {
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
@@ -321,7 +316,7 @@ private:
                     }
                 }
                 else if (getCell(x,y).type == WATER) {
-                    if (y+1 < gridHeight) {
+                    if (y+1 < grid->gridHeight) {
                         if (getCell(x, y+1).type == AIR) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
@@ -336,7 +331,7 @@ private:
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < gridWidth && getCell(x+1, y+1).type == AIR) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).type == AIR) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
@@ -348,7 +343,7 @@ private:
                     if (xTry > 0) {
                         getCell(x, y).updated = true;
                         int xPos = 0;
-                        for (xPos = x+1; xPos <= x+xTry && xPos < gridWidth && getCell(xPos, y).type == AIR; xPos++);
+                        for (xPos = x+1; xPos <= x+xTry && xPos < grid->gridWidth && getCell(xPos, y).type == AIR; xPos++);
                         Cell temp = getCell(xPos-1, y);
                         getCell(xPos-1, y) = getCell(x, y);
                         getCell(x, y) = temp;
@@ -447,8 +442,8 @@ private:
         createTextureImageView();
         createTextureSampler();
         generateWorld();
-        createVertexBuffer(vertexBuffer, ((gridWidth+1)*(gridHeight+1)+100)*sizeof(Vertex), vertexData);
-        createIndexBuffer(indexBuffer, (6*(gridWidth+1)*(gridHeight+1)+100)*sizeof(uint32_t), indexData);
+        createVertexBuffer(vertexBuffer, ((grid->gridWidth+1)*(grid->gridHeight+1)+100)*sizeof(Vertex), vertexData);
+        createIndexBuffer(indexBuffer, (6*(grid->gridWidth+1)*(grid->gridHeight+1)+100)*sizeof(uint32_t), indexData);
         createUniformBuffers();
         createDescriptorPool();
         createDescriptorSets();
@@ -491,10 +486,10 @@ private:
         if (glfwGetKey(window, GLFW_KEY_9) == GLFW_PRESS)
             elementID = 9;*/
         
-        adjustedMouseX = mouseX*visibleWidth+cameraPos.x+gridWidth/2.0f-visibleWidth/2.0f;
-        adjustedMouseY = mouseY*visibleHeight+cameraPos.y+gridHeight/2.0f-visibleHeight/2.0f-0.5f;
+        adjustedMouseX = mouseX*visibleWidth+cameraPos.x+grid->gridWidth/2.0f-visibleWidth/2.0f;
+        adjustedMouseY = mouseY*visibleHeight+cameraPos.y+grid->gridHeight/2.0f-visibleHeight/2.0f-0.5f;
         
-        if (adjustedMouseX >= 0 && adjustedMouseX < gridWidth && adjustedMouseY >= 0 && adjustedMouseY < gridHeight) {
+        if (adjustedMouseX >= 0 && adjustedMouseX < grid->gridWidth && adjustedMouseY >= 0 && adjustedMouseY < grid->gridHeight) {
             if (mouseLeftPressed)
                 getCell(adjustedMouseX, adjustedMouseY) = Cell((Type) elementID);
             if (mouseRightPressed)
@@ -512,6 +507,8 @@ private:
             if (time*TPS >= ticks) {
                 input();
                 update();
+                auto currentTime = std::chrono::high_resolution_clock::now();
+                float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count()-time;
                 updateVertices();
                 drawFrame();
                 #ifdef SHOW_POSITION
@@ -519,8 +516,6 @@ private:
                 #endif
                 #ifndef HIDE_DIAGNOSTICS
                 if (ticks % TPS == 0) {
-                auto currentTime = std::chrono::high_resolution_clock::now();
-                float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count()-time;
                 uint32_t vertexCount = vertices.size();
                 uint32_t indexCount = indices.size();
                 std::cout << "Frame time: " << frameTime <<
@@ -1735,8 +1730,8 @@ private:
         indices.emplace_back(currentIndex + 2);
         currentIndex += 4;*/
 
-        int gridWidth = SandSimApplication::gridWidth;
-        int gridHeight = SandSimApplication::gridHeight;
+        int gridWidth = grid->gridWidth;
+        int gridHeight = grid->gridHeight;
         int leftLimit = floor(cameraPos.x-visibleWidth);
         leftLimit = leftLimit >= -gridWidth/2 ? leftLimit : -gridWidth/2;
         int rightLimit = ceil(cameraPos.x+visibleWidth);
@@ -1755,12 +1750,15 @@ private:
                     vertices.emplace_back(Vertex{{(x + 1.0f)/visibleHeight, (y + 0.0f)/visibleHeight, 0.5f}, cellColor, {cellColorIndex, 0.0f}});   
             }
         }
-        for (int x = leftLimit; x < rightLimit; x++) {
-            float cellColorIndex = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).colorIndex;
-            glm::vec3 cellColor = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).color;
-            vertices.emplace_back(Vertex{{x/visibleHeight, bottomLimit/visibleHeight, 0.5f}, cellColor, {cellColorIndex, 0.0f}});
+        if (bottomLimit <= gridHeight/2 && bottomLimit > -gridHeight/2) {
+            for (int x = leftLimit; x < rightLimit; x++) {
+                float cellColorIndex = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).colorIndex;
+                glm::vec3 cellColor = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).color;
+                vertices.emplace_back(Vertex{{x/visibleHeight, bottomLimit/visibleHeight, 0.5f}, cellColor, {cellColorIndex, 0.0f}});
+            }
+            if (rightLimit <= gridWidth/2 && rightLimit > -gridWidth/2)
+                vertices.emplace_back(Vertex{{rightLimit/visibleHeight, bottomLimit/visibleHeight, 0.5f}, getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).color, {getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).colorIndex, 0.0f}});
         }
-        vertices.emplace_back(Vertex{{rightLimit/visibleHeight, bottomLimit/visibleHeight, 0.5f}, getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).color, {getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).colorIndex, 0.0f}});
 
         //Indices
         for (int y = topLimit; y < bottomLimit; y++) {
