@@ -3,7 +3,7 @@
 Grid::Grid() {
     for (int x = 0; x < gridWidth; x++) {
         for (int y = 0; y < gridHeight; y++) {
-            getCell(x, y) = Cell(AIR);
+            getCell(x, y) = Cell(SOLID);
         }
     }
 }

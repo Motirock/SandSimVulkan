@@ -1,8 +1,10 @@
-//TODO createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; not allowing for transpartent alpha
-//TODO pixelated by changing mag filter from VK_FILTER_LINEAR and disabling anisotropy
+//TODO fences and semaphores for syncing
+//TODO seperate pipeline for entities
+//TODO bloom
 //TODO remove annoying abreviation (pos, proj, etc.)
 //TODO * or & AFTER space
 //TODO double for time instead of float (shits itself after time is too long)
+//TODO getCell changed to [0, 0] to be center
 
 /* Quick Use
 glslc shaders/shader.vert -o shaders/vert.spv && glslc shaders/shader.frag -o shaders/frag.spv && g++ -c -std=c++17 -O3 src/*.cxx -Iinclude && g++ *.o -o bin/main -Llib -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi && ./bin/main
@@ -24,23 +26,6 @@ g++ -c -std=c++17 -O3 src/*.cxx -Iinclude && g++ *.o -o bin/main -Llib -lglfw -l
 glslc shaders/shader.vert -o shaders/vert.spv
 glslc shaders/shader.frag -o shaders/frag.spv
 */
-
-/*
-static auto startTime = std::chrono::high_resolution_clock::now();
-auto currentTime = std::chrono::high_resolution_clock::now();
-time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-if (time*TPS >= ticks) {
-    glfwPollEvents();
-    drawFrame();
-    if (ticks++ % TPS == 0) {
-    auto currentTime = std::chrono::high_resolution_clock::now();
-    float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count()-time;
-    std::cout << "Frame time: " << frameTime <<
-        " Theoretical maximum FPS: " << (int) (1.0f/frameTime) << "\n";
-    }
-}
-*/
-
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -69,7 +54,7 @@ if (time*TPS >= ticks) {
 
 #include "VkUtils.h"
 #include "PerlinNoise.hpp"
-#include "Grid.h"
+#include "Projectile.h"
 
 using namespace VkUtils;
 
@@ -84,7 +69,6 @@ const uint32_t MAX_VERTEX_MEMORY = 2'00'000*sizeof(Vertex);
 const uint32_t MAX_INDEX_MEMORY = 2'50'000*sizeof(uint32_t);
 
 const std::string TEXTURE_PATH = "textures/palette.png";
-
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validationLayers = {
@@ -233,6 +217,8 @@ private:
     Grid *grid;
     float visibleHeight = 100.0f;
     float visibleWidth = 0;
+
+    std::vector<Projectile> projectiles = std::vector<Projectile>();
     
     uint64_t updates = 0;
 
@@ -242,7 +228,7 @@ private:
 
     void generateWorld() {
         grid = new Grid();
-
+        
         /*tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
@@ -362,6 +348,21 @@ private:
                 }
             }
         }
+
+        //Simplify this, i guess
+        for (Projectile &projectile : projectiles) {
+            projectile.updatePosition();
+            if (getCell(projectile.x, projectile.y).type != AIR) {
+                getCell(projectile.x, projectile.y) = Cell(AIR);
+                projectile.health -= 1;
+            }
+            
+            projectile.alive = projectile.health > 0;
+            //std::cout << projectile.toString() << '\n';
+        }
+        for (int i = projectiles.size()-1; i >= 0; i--)
+            if (!projectiles[i].alive)
+                projectiles.erase(projectiles.begin() + i);
 
         updates++;
     }
@@ -494,8 +495,22 @@ private:
                 getCell(adjustedMouseX, adjustedMouseY) = Cell((Type) elementID);
             if (mouseRightPressed)
                 getCell(adjustedMouseX, adjustedMouseY) = Cell((Type) elementID);
-        }
 
+            if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+                float mouseAngle;
+                float x = cameraPos.x;
+                float y = cameraPos.y;
+                float differenceX = adjustedMouseX-Grid::gridWidth/2.0f-x;
+                float differenceY = adjustedMouseY-Grid::gridHeight/2.0f-y;
+                if (differenceX < 0)
+                    mouseAngle = 3.14159f+atan((-differenceY)/(differenceX+0.00001));
+                else
+                    mouseAngle = fmod(2*3.14159f+atan((-differenceY)/(differenceX+0.00001)), 3.14159f*2.0f);
+                float vx = cos(mouseAngle);
+                float vy = -sin(mouseAngle);
+                projectiles.emplace_back(Projectile(grid, adjustedMouseX, adjustedMouseY, vx, vy));
+            }
+        }
     }
 
     void mainLoop() {
@@ -512,7 +527,7 @@ private:
                 updateVertices();
                 drawFrame();
                 #ifdef SHOW_POSITION
-                std::cout << "X Y Z: " << cameraPos.x << " " << cameraPos.y << " at time " << time << "s\n";
+                std::cout << "X Y: " << cameraPos.x << " " << cameraPos.y << " at time " << time << "s\n";
                 #endif
                 #ifndef HIDE_DIAGNOSTICS
                 if (ticks % TPS == 0) {
@@ -1793,33 +1808,53 @@ private:
         vertices.emplace_back(Vertex{{-gridWidth/visibleHeight/2-10/visibleHeight, -gridHeight/visibleHeight/2-10/visibleHeight, 0.01f}, {0.5f, 0.0f, 1.0f}, {23.0f/64.0f, 0.0f}});
         vertices.emplace_back(Vertex{{gridWidth/visibleHeight/2+10/visibleHeight, -gridHeight/visibleHeight/2-10/visibleHeight, 0.01f}, {0.5f, 0.0f, 1.0f}, {23.0f/64.0f, 0.0f}});
         vertices.emplace_back(Vertex{{gridWidth/visibleHeight/2+10/visibleHeight, gridHeight/visibleHeight/2+10/visibleHeight, 0.01f}, {0.5f, 0.0f, 1.0f}, {23.0f/64.0f, 0.0f}});
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 1 + 4);
-        indices.emplace_back(currentIndex + 0 + 4);
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 1 + 4);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 2 + 4);
-        indices.emplace_back(currentIndex + 1 + 4);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 2 + 4);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 3 + 4);
-        indices.emplace_back(currentIndex + 2 + 4);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 3 + 4);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 0 + 4);
-        indices.emplace_back(currentIndex + 3 + 4);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 0 + 4);
-        currentIndex += 8;
-
         
+        indices.emplace_back(currentIndex + 0);
+        indices.emplace_back(currentIndex + 1);
+        indices.emplace_back(currentIndex + 1 + 4);
+        indices.emplace_back(currentIndex + 0 + 4);
+        indices.emplace_back(currentIndex + 0);
+        indices.emplace_back(currentIndex + 1 + 4);
+
+        indices.emplace_back(currentIndex + 1);
+        indices.emplace_back(currentIndex + 2);
+        indices.emplace_back(currentIndex + 2 + 4);
+        indices.emplace_back(currentIndex + 1 + 4);
+        indices.emplace_back(currentIndex + 1);
+        indices.emplace_back(currentIndex + 2 + 4);
+
+        indices.emplace_back(currentIndex + 2);
+        indices.emplace_back(currentIndex + 3);
+        indices.emplace_back(currentIndex + 3 + 4);
+        indices.emplace_back(currentIndex + 2 + 4);
+        indices.emplace_back(currentIndex + 2);
+        indices.emplace_back(currentIndex + 3 + 4);
+
+        indices.emplace_back(currentIndex + 3);
+        indices.emplace_back(currentIndex + 0);
+        indices.emplace_back(currentIndex + 0 + 4);
+        indices.emplace_back(currentIndex + 3 + 4);
+        indices.emplace_back(currentIndex + 3);
+        indices.emplace_back(currentIndex + 0 + 4);
+        currentIndex = vertices.size();;
+
+        for (Projectile &projectile : projectiles) {
+            float x = projectile.x-gridWidth/2;
+            float y = projectile.y-gridHeight/2; 
+            glm::vec3 color = glm::vec3(1.0f, 1.0f, 1.0f);
+            float colorIndex = 23.0f/64.0f;
+            vertices.emplace_back(Vertex{{(x-0.5f)/visibleHeight, (y-0.5f)/visibleHeight, 0.1f}, {1.0f, 0.0f, 0.0f}, {23.0f/64.0f, 0.0f}});
+            vertices.emplace_back(Vertex{{(x+0.5f)/visibleHeight, (y-0.5f)/visibleHeight, 0.1f}, {1.0f, 0.0f, 0.0f}, {23.0f/64.0f, 0.0f}});
+            vertices.emplace_back(Vertex{{(x+0.5f)/visibleHeight, (y+0.5f)/visibleHeight, 0.1f}, {1.0f, 0.0f, 0.0f}, {23.0f/64.0f, 0.0f}});
+            vertices.emplace_back(Vertex{{(x-0.5f)/visibleHeight, (y+0.5)/visibleHeight, 0.1f}, {1.0f, 0.0f, 0.0f}, {23.0f/64.0f, 0.0f}});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            currentIndex += 4;
+        }
 
 
         uploadVertices();
