@@ -4,8 +4,8 @@ Cell::Cell() {}
 
 Cell::Cell(float cellColorIndex) : colorIndex(cellColorIndex) {}
 
-Cell::Cell(Type cellType) : type(cellType) {
-    switch (type) {
+Cell::Cell(Element cellElement) : element(cellElement) {
+    switch (element.type) {
         case SOLID:
             colorIndex = 32.0f/64.0f;
             // color.r = 0.3f;

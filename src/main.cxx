@@ -275,25 +275,25 @@ private:
                 getCell(x, y).updated = false;
         for (int x = 0; x < grid->gridWidth; x++) {
             for (int y = grid->gridHeight-1; y >= 0; y--) {
-                if (getCell(x,y).type == AIR || getCell(x,y).updated)
+                if (getCell(x,y).element.type == AIR || getCell(x,y).updated)
                     continue;
-                if (getCell(x,y).type == SAND) {
+                if (getCell(x,y).element.type == SAND) {
                     if (y+1 < grid->gridHeight) {
-                        if (getCell(x, y+1).type <= WATER) {
+                        if (getCell(x, y+1).element.type <= WATER) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
                             getCell(x, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x-1 >= 0 && getCell(x-1, y+1).type <= WATER) {
+                        if (x-1 >= 0 && getCell(x-1, y+1).element.type <= WATER) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x-1, y+1);
                             getCell(x-1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).type <= WATER) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.type <= WATER) {
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
@@ -301,23 +301,23 @@ private:
                         }
                     }
                 }
-                else if (getCell(x,y).type == WATER) {
+                else if (getCell(x,y).element.type == WATER) {
                     if (y+1 < grid->gridHeight) {
-                        if (getCell(x, y+1).type == AIR) {
+                        if (getCell(x, y+1).element.type == AIR) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
                             getCell(x, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x-1 >= 0 && getCell(x-1, y+1).type == AIR) {
+                        if (x-1 >= 0 && getCell(x-1, y+1).element.type == AIR) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x-1, y+1);
                             getCell(x-1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).type == AIR) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.type == AIR) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
@@ -329,7 +329,7 @@ private:
                     if (xTry > 0) {
                         getCell(x, y).updated = true;
                         int xPos = 0;
-                        for (xPos = x+1; xPos <= x+xTry && xPos < grid->gridWidth && getCell(xPos, y).type == AIR; xPos++);
+                        for (xPos = x+1; xPos <= x+xTry && xPos < grid->gridWidth && getCell(xPos, y).element.type == AIR; xPos++);
                         Cell temp = getCell(xPos-1, y);
                         getCell(xPos-1, y) = getCell(x, y);
                         getCell(x, y) = temp;
@@ -338,7 +338,7 @@ private:
                     if (xTry < 0) {
                         getCell(x, y).updated = true;
                         int xPos = 0;
-                        for (xPos = x-1; xPos >= x+xTry && xPos >= 0 && getCell(xPos, y).type == AIR; xPos--);
+                        for (xPos = x-1; xPos >= x+xTry && xPos >= 0 && getCell(xPos, y).element.type == AIR; xPos--);
                         Cell temp = getCell(xPos+1, y);
                         getCell(xPos+1, y) = getCell(x, y);
                         getCell(x, y) = temp;
@@ -352,13 +352,11 @@ private:
         //Simplify this, i guess
         for (Projectile &projectile : projectiles) {
             projectile.updatePosition();
-            if (getCell(projectile.x, projectile.y).type != AIR) {
+            if (getCell(projectile.x, projectile.y).element.type != AIR) {
                 getCell(projectile.x, projectile.y) = Cell(AIR);
                 projectile.health -= 1;
             }
-            
             projectile.alive = projectile.health > 0;
-            //std::cout << projectile.toString() << '\n';
         }
         for (int i = projectiles.size()-1; i >= 0; i--)
             if (!projectiles[i].alive)
@@ -455,7 +453,7 @@ private:
     float mouseX = 0.0f, mouseY = 0.0f;
     int adjustedMouseX, adjustedMouseY;
     bool mouseLeftPressed = false, mouseRightPressed = false;
-    int elementID = 1;
+    Element selectedElement = Element(AIR, GAS);
     void input() {
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
             cameraPos.y -= speed*(1.0f/TPS);
@@ -466,14 +464,18 @@ private:
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
             cameraPos.x += speed*(1.0f/TPS);
 
-        if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS)
-            elementID = 0;
-        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
-            elementID = 1;
-        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
-            elementID = 2;
-        if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
-            elementID = 3;
+        if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) {
+            selectedElement = Element(AIR, GAS);
+        }
+        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+            selectedElement = Element(WATER, LIQUID);
+        }
+        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+            selectedElement = Element(SAND, SOLID_FALLING);
+        }
+        if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+             selectedElement = Element(SOLID, SOLID_STATIC);
+        }
         /*if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
             elementID = 4;
         if (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS)
@@ -492,9 +494,9 @@ private:
         
         if (adjustedMouseX >= 0 && adjustedMouseX < grid->gridWidth && adjustedMouseY >= 0 && adjustedMouseY < grid->gridHeight) {
             if (mouseLeftPressed)
-                getCell(adjustedMouseX, adjustedMouseY) = Cell((Type) elementID);
+                getCell(adjustedMouseX, adjustedMouseY) = Cell(selectedElement);
             if (mouseRightPressed)
-                getCell(adjustedMouseX, adjustedMouseY) = Cell((Type) elementID);
+                getCell(adjustedMouseX, adjustedMouseY) = Cell(selectedElement);
 
             if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
                 float mouseAngle;

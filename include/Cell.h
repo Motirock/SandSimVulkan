@@ -8,17 +8,17 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
 
-enum Type : unsigned short {AIR, WATER, SOLID, SAND};
+#include "Element.h"
 
 struct Cell {
-    Type type = AIR;
+    Element element = Element(AIR, GAS);
     glm::vec3 color = glm::vec3(1.0f);
     bool updated = false;
     float colorIndex = -1.0f;
 
     Cell();
     Cell(float cellColorIndex);
-    Cell(Type cellType);
+    Cell(Element cellElement);
 };
 
 
