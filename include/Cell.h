@@ -14,10 +14,8 @@ struct Cell {
     Element element = Element(AIR, GAS);
     glm::vec3 color = glm::vec3(1.0f);
     bool updated = false;
-    float colorIndex = -1.0f;
 
     Cell();
-    Cell(float cellColorIndex);
     Cell(Element cellElement);
 };
 

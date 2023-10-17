@@ -33,8 +33,9 @@ glslc shaders/shader.frag -o shaders/frag.spv
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
+#include <json/json.h>
+#include <json/value.h>
+#include <json/writer.h>
 
 #include <iostream>
 #include <fstream>
@@ -211,8 +212,7 @@ private:
 
     glm::vec2 cameraPos = glm::vec2(0.0f, 0.0f);
 
-    float speed = 30.0f;
-    float turningSpeed = 2.0f;
+    float speed = 50.0f;
 
     Grid *grid;
     float visibleHeight = 100.0f;
@@ -226,45 +226,58 @@ private:
         return grid->getCell(x, y);
     }
 
+    void saveWorld(std::string fileName) {
+        Json::Value world;   
+        Json::Value gridVector(Json::arrayValue);
+
+        world["camera"]["x"] = cameraPos.x;
+        world["camera"]["y"] = cameraPos.y;
+
+        int size = 0;
+        for (int x = 0; x < grid->gridWidth; x++) {
+            for (int y = 0; y < grid->gridHeight; y++) {
+                Json::Value cellVector(Json::arrayValue);
+                cellVector.append(Json::Value(x));
+                cellVector.append(Json::Value(y));
+                cellVector.append(Json::Value(getCell(x, y).element.type));
+                cellVector.append(Json::Value(getCell(x, y).element.state));
+                size++;
+                gridVector.append(cellVector);
+            }
+        }
+        world["grid"]["size"] = size;
+        world["grid"]["elements"] = gridVector;
+
+        Json::StreamWriterBuilder builder;
+        builder["commentStyle"] = "None";
+        builder["indentation"] = "   ";
+
+        std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+        std::ofstream outputFileStream("data/"+fileName+".json");
+        writer->write(world, &outputFileStream);
+    }
+
+    void loadWorld(std::string fileName) {
+        std::ifstream worldFile("data/world.json", std::ifstream::binary);
+        Json::Value world;
+        worldFile >> world;
+
+        cameraPos.x = world["camera"]["x"].asFloat();
+        cameraPos.y = world["camera"]["y"].asFloat();
+
+        int size = world["grid"]["size"].asInt();
+        for (int i = 0; i < size; i++) {
+            getCell(world["grid"]["elements"][i][0].asInt(), world["grid"]["elements"][i][1].asInt()) = 
+                Cell(Element((Type) world["grid"]["elements"][i][2].asInt(), (State) world["grid"]["elements"][i][3].asInt()));
+        }
+    }
+
     void generateWorld() {
         grid = new Grid();
-        
-        /*tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
+    }
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-            throw std::runtime_error(warn + err);
-        }
+    void checkWin() {
 
-        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-        for (const auto& shape : shapes) {
-            for (const auto& index : shape.mesh.indices) {
-                Vertex vertex{};
-
-                vertex.pos = {
-                    attrib.vertices[3 * index.vertex_index + 0],
-                    attrib.vertices[3 * index.vertex_index + 1],
-                    attrib.vertices[3 * index.vertex_index + 2]
-                };
-
-                vertex.texCoord = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-                };
-
-                vertex.color = {1.0f, 1.0f, 1.0f};
-
-                if (uniqueVertices.count(vertex) == 0) {
-                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-                    vertices.push_back(vertex);
-                }
-
-                indices.push_back(uniqueVertices[vertex]);
-            }
-        }*/
     }
 
     void update() {
@@ -275,25 +288,25 @@ private:
                 getCell(x, y).updated = false;
         for (int x = 0; x < grid->gridWidth; x++) {
             for (int y = grid->gridHeight-1; y >= 0; y--) {
-                if (getCell(x,y).element.type == AIR || getCell(x,y).updated)
+                if (getCell(x, y).element.type == AIR || getCell(x,y).updated)
                     continue;
-                if (getCell(x,y).element.type == SAND) {
+                if (getCell(x, y).element.state == SOLID_FALLING) {
                     if (y+1 < grid->gridHeight) {
-                        if (getCell(x, y+1).element.type <= WATER) {
+                        if (getCell(x, y+1).element.state <= LIQUID) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
                             getCell(x, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x-1 >= 0 && getCell(x-1, y+1).element.type <= WATER) {
+                        if (x-1 >= 0 && getCell(x-1, y+1).element.state <= LIQUID) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x-1, y+1);
                             getCell(x-1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.type <= WATER) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.state <= LIQUID) {
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
@@ -301,26 +314,71 @@ private:
                         }
                     }
                 }
-                else if (getCell(x,y).element.type == WATER) {
+                else if (getCell(x, y).element.state == LIQUID) {
                     if (y+1 < grid->gridHeight) {
-                        if (getCell(x, y+1).element.type == AIR) {
+                        if (getCell(x, y+1).element.state == GAS) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x, y+1);
                             getCell(x, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x-1 >= 0 && getCell(x-1, y+1).element.type == AIR) {
+                        if (x-1 >= 0 && getCell(x-1, y+1).element.state == GAS) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x-1, y+1);
                             getCell(x-1, y+1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
-                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.type == AIR) {
+                        if (x+1 < grid->gridWidth && getCell(x+1, y+1).element.state == GAS) {
                             getCell(x, y).updated = true;
                             Cell temp = getCell(x+1, y+1);
                             getCell(x+1, y+1) = getCell(x, y);
+                            getCell(x, y) = temp;
+                            continue;
+                        }
+                    }
+                    int xTry = rand()%5-2;
+                    if (xTry > 0) {
+                        getCell(x, y).updated = true;
+                        int xPos = 0;
+                        for (xPos = x+1; xPos <= x+xTry && xPos < grid->gridWidth && getCell(xPos, y).element.state == GAS; xPos++);
+                        Cell temp = getCell(xPos-1, y);
+                        getCell(xPos-1, y) = getCell(x, y);
+                        getCell(x, y) = temp;
+                        continue;
+                    }
+                    if (xTry < 0) {
+                        getCell(x, y).updated = true;
+                        int xPos = 0;
+                        for (xPos = x-1; xPos >= x+xTry && xPos >= 0 && getCell(xPos, y).element.state == GAS; xPos--);
+                        Cell temp = getCell(xPos+1, y);
+                        getCell(xPos+1, y) = getCell(x, y);
+                        getCell(x, y) = temp;
+                        continue;
+                    }
+                    continue;
+                }
+                else if (getCell(x, y).element.state == GAS) {
+                    if (y-1 >= 0) {
+                        if (getCell(x, y-1).element.type == AIR) {
+                            getCell(x, y).updated = true;
+                            Cell temp = getCell(x, y-1);
+                            getCell(x, y-1) = getCell(x, y);
+                            getCell(x, y) = temp;
+                            continue;
+                        }
+                        if (x-1 >= 0 && getCell(x-1, y-1).element.type == AIR) {
+                            getCell(x, y).updated = true;
+                            Cell temp = getCell(x-1, y-1);
+                            getCell(x-1, y-1) = getCell(x, y);
+                            getCell(x, y) = temp;
+                            continue;
+                        }
+                        if (x+1 < grid->gridWidth && getCell(x+1, y-1).element.type == AIR) {
+                            getCell(x, y).updated = true;
+                            Cell temp = getCell(x+1, y-1);
+                            getCell(x+1, y-1) = getCell(x, y);
                             getCell(x, y) = temp;
                             continue;
                         }
@@ -352,8 +410,13 @@ private:
         //Simplify this, i guess
         for (Projectile &projectile : projectiles) {
             projectile.updatePosition();
-            if (getCell(projectile.x, projectile.y).element.type != AIR) {
-                getCell(projectile.x, projectile.y) = Cell(AIR);
+            if (getCell(projectile.x, projectile.y).element.state != GAS) {
+                if (getCell(projectile.x, projectile.y).element.state == SOLID_STATIC)
+                    getCell(projectile.x, projectile.y).element.setState(SOLID_FALLING);
+                else if (getCell(projectile.x, projectile.y).element.state == SOLID_FALLING)
+                    getCell(projectile.x, projectile.y).element.setState(LIQUID);
+                else if (getCell(projectile.x, projectile.y).element.state == LIQUID)
+                    getCell(projectile.x, projectile.y).element.setState(GAS);
                 projectile.health -= 1;
             }
             projectile.alive = projectile.health > 0;
@@ -464,6 +527,11 @@ private:
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
             cameraPos.x += speed*(1.0f/TPS);
 
+        if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS)
+            saveWorld("world");
+        if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)
+            loadWorld("world");
+
         if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) {
             selectedElement = Element(AIR, GAS);
         }
@@ -493,10 +561,14 @@ private:
         adjustedMouseY = mouseY*visibleHeight+cameraPos.y+grid->gridHeight/2.0f-visibleHeight/2.0f-0.5f;
         
         if (adjustedMouseX >= 0 && adjustedMouseX < grid->gridWidth && adjustedMouseY >= 0 && adjustedMouseY < grid->gridHeight) {
-            if (mouseLeftPressed)
+            if (mouseLeftPressed) {
+                for (int x = adjustedMouseX-2 >= 0 ? adjustedMouseX-2 : 0; x <= adjustedMouseX+2 && x < grid->gridWidth; x++)
+                    for (int y = adjustedMouseY-2 >= 0 ? adjustedMouseY-2 : 0; y <= adjustedMouseY+2 && y < grid->gridHeight; y++)
+                        getCell(x, y) = Cell(selectedElement);
+            }
+            if (mouseRightPressed) {
                 getCell(adjustedMouseX, adjustedMouseY) = Cell(selectedElement);
-            if (mouseRightPressed)
-                getCell(adjustedMouseX, adjustedMouseY) = Cell(selectedElement);
+            }
 
             if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
                 float mouseAngle;
@@ -1760,7 +1832,7 @@ private:
 
         for (int y = topLimit; y < bottomLimit; y++) {
             for (int x = leftLimit; x < rightLimit; x++) {
-                float cellColorIndex = getCell(x+gridWidth/2, y+gridHeight/2).colorIndex;
+                float cellColorIndex = getCell(x+gridWidth/2, y+gridHeight/2).element.colorIndex;
                 glm::vec3 cellColor = getCell(x+gridWidth/2, y+gridHeight/2).color;
                 vertices.emplace_back(Vertex{{(x + 0.0f)/visibleHeight, (y + 0.0f)/visibleHeight, 0.5f}, cellColor, {cellColorIndex, 0.0f}});
                 if (x + 1 >= rightLimit)
@@ -1769,12 +1841,12 @@ private:
         }
         if (bottomLimit <= gridHeight/2 && bottomLimit > -gridHeight/2) {
             for (int x = leftLimit; x < rightLimit; x++) {
-                float cellColorIndex = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).colorIndex;
+                float cellColorIndex = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).element.colorIndex;
                 glm::vec3 cellColor = getCell(x+gridWidth/2, bottomLimit+gridHeight/2-1).color;
                 vertices.emplace_back(Vertex{{x/visibleHeight, bottomLimit/visibleHeight, 0.5f}, cellColor, {cellColorIndex, 0.0f}});
             }
             if (rightLimit <= gridWidth/2 && rightLimit > -gridWidth/2)
-                vertices.emplace_back(Vertex{{rightLimit/visibleHeight, bottomLimit/visibleHeight, 0.5f}, getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).color, {getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).colorIndex, 0.0f}});
+                vertices.emplace_back(Vertex{{rightLimit/visibleHeight, bottomLimit/visibleHeight, 0.5f}, getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).color, {getCell(rightLimit+gridWidth/2-1, bottomLimit+gridHeight/2-1).element.colorIndex, 0.0f}});
         }
 
         //Indices
